@@ -178,7 +178,6 @@
     let maintTab = 'urgent';
     let editing = null;
     let tempSatisfied = null;
-
     function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
     function today() { const d = new Date(); d.setHours(12,0,0,0); return d; }
     function parse(s) { return s ? new Date(s + 'T12:00:00') : null; }
@@ -196,7 +195,6 @@
       if (!str) return '';
       return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
-
     function maintCategory(item) {
       if (item.completed) return 'done';
       const next = item.nextDue ? parse(item.nextDue) : null;
@@ -206,7 +204,7 @@
       if (days === 0) return 'due';
       return 'upcoming';
     }
-
+    // FIXED: filter by month AND year so spent/remaining is correct
     function monthCosts() {
       const now = new Date();
       return data.costs.filter(c => {
@@ -214,7 +212,6 @@
         return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
       });
     }
-
     function goTo(pageName, tab) {
       page = pageName;
       if (tab) maintTab = tab;
@@ -223,7 +220,6 @@
       });
       render();
     }
-
     function render() {
       const app = document.getElementById('app');
       if (page === 'home') app.innerHTML = renderHome();
@@ -231,7 +227,6 @@
       else if (page === 'reminders') app.innerHTML = renderReminders();
       else if (page === 'shopping') app.innerHTML = renderShopping();
       else if (page === 'budget') app.innerHTML = renderBudget();
-
       let fab = document.querySelector('.fab');
       if (fab) fab.remove();
       if (['maintenance','reminders','shopping','budget'].includes(page)) {
@@ -247,28 +242,19 @@
         document.body.appendChild(fab);
       }
     }
-
     function renderHome() {
       const urgent = data.maintenance.filter(i => maintCategory(i) === 'urgent')
         .sort((a,b) => parse(a.nextDue) - parse(b.nextDue));
       const due = data.maintenance.filter(i => maintCategory(i) === 'due');
       const upcoming = data.maintenance.filter(i => maintCategory(i) === 'upcoming')
         .sort((a,b) => parse(a.nextDue) - parse(b.nextDue)).slice(0, 4);
-
-      // Overdue reminders (date in the past, not done)
-      const overdueReminders = data.reminders
-        .filter(r => !r.done && parse(r.date) < today())
-        .sort((a,b) => parse(a.date) - parse(b.date));
-
       const nextReminder = data.reminders
         .filter(r => !r.done && parse(r.date) >= today())
         .sort((a,b) => parse(a.date) - parse(b.date))[0];
-
       const costs = monthCosts();
       const spent = costs.reduce((s,c) => s + (Number(c.amount)||0), 0);
       const starting = data.startingBudget;
       const remaining = starting != null ? starting - spent : null;
-
       function smallMaintCard(item) {
         const cat = maintCategory(item);
         const next = item.nextDue ? parse(item.nextDue) : null;
@@ -291,7 +277,6 @@
           </div>
         `;
       }
-
       let budgetHtml = '';
       if (starting != null) {
         const remClass = remaining < 0 ? 'over' : remaining < starting * 0.2 ? 'low' : '';
@@ -310,29 +295,6 @@
           </div>
         `;
       }
-
-      // Overdue reminders block
-      let overdueHtml = '';
-      if (overdueReminders.length) {
-        overdueHtml = `
-          <div class="home-label">Overdue Reminders</div>
-          ${overdueReminders.slice(0,3).map(r => {
-            const days = Math.abs(daysUntil(parse(r.date)));
-            return `
-              <div class="card urgent clickable" onclick="goTo('reminders')">
-                <div class="row">
-                  <div>
-                    <div class="title">${esc(r.title)}</div>
-                    <div class="meta">${fmt(r.date)} · ${days}d overdue</div>
-                  </div>
-                  <div class="badge">${days}d overdue</div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        `;
-      }
-
       return `
         <h1>LastWhen</h1>
         <div class="subtitle">Household memory + light money</div>
@@ -345,7 +307,6 @@
         `}
         ${due.length ? `<div class="home-label">Due Today</div>${due.map(smallMaintCard).join('')}` : ''}
         ${upcoming.length ? `<div class="home-label">Upcoming</div>${upcoming.map(smallMaintCard).join('')}` : ''}
-        ${overdueHtml}
         <div class="home-label">Next Reminder</div>
         ${nextReminder ? `
           <div class="card reminder clickable" onclick="goTo('reminders')">
@@ -366,7 +327,6 @@
         ${budgetHtml}
       `;
     }
-
     function renderMaintenance() {
       const counts = { urgent:0, upcoming:0, due:0, done:0 };
       data.maintenance.forEach(i => { const c = maintCategory(i); if(c) counts[c]++; });
@@ -383,7 +343,6 @@
         ${list.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' : list.map(i => maintCard(i)).join('')}
       `;
     }
-
     function maintCard(item) {
       const cat = maintCategory(item);
       const next = item.nextDue ? parse(item.nextDue) : null;
@@ -425,42 +384,29 @@
         </div>
       `;
     }
-
     function setMaintTab(t) { maintTab = t; render(); }
-
     function renderReminders() {
-      const list = data.reminders.filter(r => !r.done).sort((a,b) => parse(a.date) - parse(b.date));
+      const upcoming = data.reminders.filter(r => !r.done).sort((a,b) => parse(a.date) - parse(b.date));
       return `
         <h1>Reminders</h1>
         <div class="subtitle">Birthdays, renewals, appointments</div>
-        ${list.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' :
-          list.map(r => {
-            const d = parse(r.date);
-            const days = daysUntil(d);
-            let badge = '';
-            if (days < 0) badge = Math.abs(days) + 'd overdue';
-            else if (days === 0) badge = 'Today';
-            else badge = 'In ' + days + 'd';
-            const isOverdue = days < 0;
-            return `
-              <div class="card ${isOverdue ? 'urgent' : 'reminder'}">
-                <div class="row">
-                  <div>
-                    <div class="title">${esc(r.title)}</div>
-                    <div class="meta">${fmt(r.date)}${r.recurring && r.recurring !== 'none' ? ' · ' + r.recurring : ''}</div>
-                  </div>
-                  <div class="badge">${badge}</div>
-                </div>
-                <div class="actions">
-                  <button class="btn btn-done" onclick="completeReminder('${r.id}')">✓ Done</button>
-                  <button class="btn btn-edit" onclick="openReminderModal('${r.id}')">Edit</button>
+        ${upcoming.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' :
+          upcoming.map(r => `
+            <div class="card reminder">
+              <div class="row">
+                <div>
+                  <div class="title">${esc(r.title)}</div>
+                  <div class="meta">${fmt(r.date)}${r.recurring && r.recurring !== 'none' ? ' · ' + r.recurring : ''}</div>
                 </div>
               </div>
-            `;
-          }).join('')}
+              <div class="actions">
+                <button class="btn btn-done" onclick="completeReminder('${r.id}')">✓ Done</button>
+                <button class="btn btn-edit" onclick="openReminderModal('${r.id}')">Edit</button>
+              </div>
+            </div>
+          `).join('')}
       `;
     }
-
     function renderShopping() {
       const items = data.shopping;
       const total = items.reduce((s,i) => s + (i.checked && i.cost ? Number(i.cost) : 0), 0);
@@ -479,7 +425,6 @@
           `).join('')}
       `;
     }
-
     function renderBudget() {
       const costs = monthCosts();
       const spent = costs.reduce((s,c) => s + (Number(c.amount)||0), 0);
@@ -538,7 +483,6 @@
           `).join('')}
       `;
     }
-
     function openStartingBudgetModal() {
       document.getElementById('modal').innerHTML = `
         <h2>Starting Budget</h2>
@@ -551,13 +495,11 @@
       `;
       document.getElementById('overlay').classList.add('open');
     }
-
     function saveStartingBudget() {
       const val = document.getElementById('b-start').value;
       data.startingBudget = val === '' ? null : Number(val);
       save(); closeModal(); render();
     }
-
     function openMaintModal(id) {
       editing = id || null;
       const item = id ? data.maintenance.find(i => i.id === id) : null;
@@ -591,14 +533,12 @@
       `;
       document.getElementById('overlay').classList.add('open');
     }
-
     function setSatisfied(val) {
       tempSatisfied = val;
       const buttons = document.querySelectorAll('.toggle-btn');
       if (buttons[0]) buttons[0].className = 'toggle-btn' + (val === true ? ' active-yes' : '');
       if (buttons[1]) buttons[1].className = 'toggle-btn' + (val === false ? ' active-no' : '');
     }
-
     function saveMaint() {
       const name = document.getElementById('m-name').value.trim();
       const nextDue = document.getElementById('m-next').value;
@@ -619,7 +559,6 @@
       } else data.maintenance.push({ id: uid(), ...payload });
       save(); closeModal(); render();
     }
-
     function markMaintDone(id, btn) {
       const item = data.maintenance.find(i => i.id === id);
       if (!item) return;
@@ -641,13 +580,11 @@
       }
       setTimeout(() => { save(); render(); }, 400);
     }
-
     function deleteMaint() {
       if (!confirm('Delete this item?')) return;
       data.maintenance = data.maintenance.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
-
     function openReminderModal(id) {
       editing = id || null;
       const item = id ? data.reminders.find(i => i.id === id) : null;
@@ -659,10 +596,9 @@
         <input type="date" id="r-date" value="${item?.date || ''}">
         <label>Recurring</label>
         <select id="r-recurring">
-          <option value="none" ${!item || item?.recurring==='none'?'selected':''}>None</option>
-          <option value="weekly" ${item?.recurring==='weekly'?'selected':''}>Weekly</option>
-          <option value="monthly" ${item?.recurring==='monthly'?'selected':''}>Monthly</option>
+          <option value="none" ${item?.recurring==='none'?'selected':''}>None</option>
           <option value="yearly" ${item?.recurring==='yearly'?'selected':''}>Yearly</option>
+          <option value="monthly" ${item?.recurring==='monthly'?'selected':''}>Monthly</option>
         </select>
         <label>Notes</label>
         <textarea id="r-notes">${item ? esc(item.notes || '') : ''}</textarea>
@@ -674,7 +610,6 @@
       `;
       document.getElementById('overlay').classList.add('open');
     }
-
     function saveReminder() {
       const title = document.getElementById('r-title').value.trim();
       const date = document.getElementById('r-date').value;
@@ -684,28 +619,19 @@
       else data.reminders.push({ id: uid(), ...payload });
       save(); closeModal(); render();
     }
-
     function completeReminder(id) {
       const r = data.reminders.find(i => i.id === id);
       if (!r) return;
-      if (r.recurring === 'yearly') {
-        const d = parse(r.date); d.setFullYear(d.getFullYear()+1); r.date = d.toISOString().slice(0,10);
-      } else if (r.recurring === 'monthly') {
-        const d = parse(r.date); d.setMonth(d.getMonth()+1); r.date = d.toISOString().slice(0,10);
-      } else if (r.recurring === 'weekly') {
-        const d = parse(r.date); d.setDate(d.getDate()+7); r.date = d.toISOString().slice(0,10);
-      } else {
-        r.done = true;
-      }
+      if (r.recurring === 'yearly') { const d = parse(r.date); d.setFullYear(d.getFullYear()+1); r.date = d.toISOString().slice(0,10); }
+      else if (r.recurring === 'monthly') { const d = parse(r.date); d.setMonth(d.getMonth()+1); r.date = d.toISOString().slice(0,10); }
+      else r.done = true;
       save(); render();
     }
-
     function deleteReminder() {
       if (!confirm('Delete?')) return;
       data.reminders = data.reminders.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
-
     function openShopModal(id) {
       editing = id || null;
       const item = id ? data.shopping.find(i => i.id === id) : null;
@@ -723,7 +649,6 @@
       `;
       document.getElementById('overlay').classList.add('open');
     }
-
     function saveShop() {
       const name = document.getElementById('s-name').value.trim();
       if (!name) return alert('Name is required');
@@ -732,7 +657,6 @@
       else data.shopping.push({ id: uid(), name, cost, checked: false });
       save(); closeModal(); render();
     }
-
     function toggleShop(id, checked) {
       const item = data.shopping.find(i => i.id === id);
       if (!item) return;
@@ -742,13 +666,11 @@
       }
       save(); render();
     }
-
     function deleteShop() {
       if (!confirm('Delete?')) return;
       data.shopping = data.shopping.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
-
     function openCostModal(id) {
       editing = id || null;
       const item = id ? data.costs.find(i => i.id === id) : null;
@@ -776,7 +698,6 @@
       `;
       document.getElementById('overlay').classList.add('open');
     }
-
     function saveCost() {
       const label = document.getElementById('c-label').value.trim();
       const amount = Number(document.getElementById('c-amount').value);
@@ -791,29 +712,24 @@
       else data.costs.push({ id: uid(), ...payload });
       save(); closeModal(); render();
     }
-
     function deleteCost() {
       if (!confirm('Delete this entry?')) return;
       data.costs = data.costs.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
-
     function closeModal() {
       document.getElementById('overlay').classList.remove('open');
       editing = null;
       tempSatisfied = null;
     }
-
     document.getElementById('nav').addEventListener('click', e => {
       const btn = e.target.closest('button');
       if (!btn) return;
       goTo(btn.dataset.page);
     });
-
     document.getElementById('overlay').addEventListener('click', e => {
       if (e.target.id === 'overlay') closeModal();
     });
-
     data.maintenance.forEach(item => {
       if (item.completed && item.nextDue) {
         const days = daysUntil(parse(item.nextDue));
