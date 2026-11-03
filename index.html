@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>LastWhen</title>
+  <title>LastWhen Hosts</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -27,7 +27,7 @@
     }
     .app { max-width: 480px; margin: 0 auto; padding: 16px; }
     h1 { font-size: 1.4rem; font-weight: 700; }
-    .subtitle { font-size: 0.85rem; color: var(--muted); margin-bottom: 18px; }
+    .subtitle { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
     .nav {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: var(--surface); border-top: 1px solid var(--surface2);
@@ -93,6 +93,13 @@
       background: var(--surface); color: var(--muted); border: none; white-space: nowrap; cursor: pointer;
     }
     .tab.active { background: var(--accent); color: #0f172a; }
+    .prop-select {
+      width: 100%; background: var(--surface); border: 1px solid var(--surface2);
+      border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 0.95rem;
+      margin-bottom: 14px; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 14px center;
+    }
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.7);
       display: flex; align-items: flex-end; justify-content: center;
@@ -142,6 +149,16 @@
     .stat-box { background: var(--bg); border-radius: 12px; padding: 12px; text-align: center; }
     .stat-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
     .stat-value { font-size: 1.15rem; font-weight: 700; }
+    .prop-chip {
+      display: inline-block; font-size: 0.72rem; background: var(--surface2);
+      color: var(--muted); padding: 2px 8px; border-radius: 8px; margin-top: 4px;
+    }
+    .prop-card {
+      background: var(--surface); border-radius: 14px; padding: 16px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .prop-card .name { font-weight: 600; }
+    .prop-card .addr { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -172,12 +189,21 @@
     <div class="modal" id="modal"></div>
   </div>
   <script>
-    const KEY = 'lastwhen_home_v5';
-    let data = JSON.parse(localStorage.getItem(KEY) || '{"maintenance":[],"reminders":[],"shopping":[],"costs":[],"startingBudget":null}');
+    const KEY = 'lastwhen_hosts_v1';
+    let data = JSON.parse(localStorage.getItem(KEY) || null) || {
+      properties: [],
+      maintenance: [],
+      reminders: [],
+      shopping: [],
+      costs: [],
+      startingBudget: null
+    };
     let page = 'home';
     let maintTab = 'urgent';
+    let selectedProp = 'all'; // 'all' or property id
     let editing = null;
     let tempSatisfied = null;
+
     function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
     function today() { const d = new Date(); d.setHours(12,0,0,0); return d; }
     function parse(s) { return s ? new Date(s + 'T12:00:00') : null; }
@@ -195,6 +221,20 @@
       if (!str) return '';
       return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+    function propName(id) {
+      if (!id || id === 'all') return 'All properties';
+      const p = data.properties.find(x => x.id === id);
+      return p ? p.name : 'Unknown';
+    }
+    function propLabel(id) {
+      if (!id) return '';
+      const p = data.properties.find(x => x.id === id);
+      return p ? `<span class="prop-chip">${esc(p.name)}</span>` : '';
+    }
+    function filtered(list) {
+      if (selectedProp === 'all') return list;
+      return list.filter(i => i.propertyId === selectedProp);
+    }
     function maintCategory(item) {
       if (item.completed) return 'done';
       const next = item.nextDue ? parse(item.nextDue) : null;
@@ -204,10 +244,9 @@
       if (days === 0) return 'due';
       return 'upcoming';
     }
-    // FIXED: filter by month AND year so spent/remaining is correct
     function monthCosts() {
       const now = new Date();
-      return data.costs.filter(c => {
+      return filtered(data.costs).filter(c => {
         const d = parse(c.date);
         return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
       });
@@ -220,6 +259,19 @@
       });
       render();
     }
+    function setProp(id) {
+      selectedProp = id;
+      render();
+    }
+    function propSelectorHtml() {
+      if (data.properties.length === 0) return '';
+      let opts = `<option value="all" ${selectedProp==='all'?'selected':''}>All properties</option>`;
+      data.properties.forEach(p => {
+        opts += `<option value="${p.id}" ${selectedProp===p.id?'selected':''}>${esc(p.name)}</option>`;
+      });
+      return `<select class="prop-select" onchange="setProp(this.value)">${opts}</select>`;
+    }
+
     function render() {
       const app = document.getElementById('app');
       if (page === 'home') app.innerHTML = renderHome();
@@ -242,19 +294,30 @@
         document.body.appendChild(fab);
       }
     }
+
     function renderHome() {
-      const urgent = data.maintenance.filter(i => maintCategory(i) === 'urgent')
-        .sort((a,b) => parse(a.nextDue) - parse(b.nextDue));
-      const due = data.maintenance.filter(i => maintCategory(i) === 'due');
-      const upcoming = data.maintenance.filter(i => maintCategory(i) === 'upcoming')
-        .sort((a,b) => parse(a.nextDue) - parse(b.nextDue)).slice(0, 4);
-      const nextReminder = data.reminders
+      if (data.properties.length === 0) {
+        return `
+          <h1>LastWhen Hosts</h1>
+          <div class="subtitle">Property memory for Airbnb hosts & managers</div>
+          <div class="empty">
+            Add your first property to get started.<br><br>
+            <button class="btn btn-primary" style="padding:12px 20px" onclick="openPropModal()">+ Add Property</button>
+          </div>
+        `;
+      }
+      const maint = filtered(data.maintenance);
+      const urgent = maint.filter(i => maintCategory(i) === 'urgent').sort((a,b) => parse(a.nextDue) - parse(b.nextDue));
+      const due = maint.filter(i => maintCategory(i) === 'due');
+      const upcoming = maint.filter(i => maintCategory(i) === 'upcoming').sort((a,b) => parse(a.nextDue) - parse(b.nextDue)).slice(0, 4);
+      const nextReminder = filtered(data.reminders)
         .filter(r => !r.done && parse(r.date) >= today())
         .sort((a,b) => parse(a.date) - parse(b.date))[0];
       const costs = monthCosts();
       const spent = costs.reduce((s,c) => s + (Number(c.amount)||0), 0);
       const starting = data.startingBudget;
       const remaining = starting != null ? starting - spent : null;
+
       function smallMaintCard(item) {
         const cat = maintCategory(item);
         const next = item.nextDue ? parse(item.nextDue) : null;
@@ -271,18 +334,20 @@
               <div>
                 <div class="title">${esc(item.name)}</div>
                 <div class="meta">${item.cost ? money(item.cost) + ' · ' : ''}${item.lastDone ? 'Last: ' + fmt(item.lastDone) : ''}</div>
+                ${selectedProp === 'all' ? propLabel(item.propertyId) : ''}
               </div>
               <div class="badge">${badge}</div>
             </div>
           </div>
         `;
       }
+
       let budgetHtml = '';
       if (starting != null) {
         const remClass = remaining < 0 ? 'over' : remaining < starting * 0.2 ? 'low' : '';
         budgetHtml = `
           <div class="card neutral clickable" onclick="goTo('budget')">
-            <div class="meta">Remaining this month</div>
+            <div class="meta">Remaining this month ${selectedProp !== 'all' ? '(' + propName(selectedProp) + ')' : ''}</div>
             <div class="big-number remaining ${remClass}">${money(remaining)}</div>
             <div class="meta">of ${money(starting)} · Spent ${money(spent)}</div>
           </div>
@@ -295,9 +360,24 @@
           </div>
         `;
       }
+
       return `
-        <h1>LastWhen</h1>
-        <div class="subtitle">Household memory + light money</div>
+        <h1>LastWhen Hosts</h1>
+        <div class="subtitle">Property memory + light money for hosts</div>
+        ${propSelectorHtml()}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="home-label" style="margin:0">Properties</div>
+          <button class="btn btn-edit" style="padding:6px 10px;font-size:0.8rem" onclick="openPropModal()">+ Add</button>
+        </div>
+        ${data.properties.map(p => `
+          <div class="prop-card">
+            <div>
+              <div class="name">${esc(p.name)}</div>
+              <div class="addr">${esc(p.address || '')}</div>
+            </div>
+            <button class="btn btn-edit" style="padding:6px 10px" onclick="openPropModal('${p.id}')">Edit</button>
+          </div>
+        `).join('')}
         <div class="home-label">Most Urgent</div>
         ${urgent.length ? urgent.slice(0,3).map(smallMaintCard).join('') : `
           <div class="card neutral clickable" onclick="goTo('maintenance','urgent')">
@@ -314,6 +394,7 @@
               <div>
                 <div class="title">${esc(nextReminder.title)}</div>
                 <div class="meta">${fmt(nextReminder.date)}</div>
+                ${selectedProp === 'all' ? propLabel(nextReminder.propertyId) : ''}
               </div>
             </div>
           </div>
@@ -327,20 +408,23 @@
         ${budgetHtml}
       `;
     }
+
     function renderMaintenance() {
+      const list = filtered(data.maintenance);
       const counts = { urgent:0, upcoming:0, due:0, done:0 };
-      data.maintenance.forEach(i => { const c = maintCategory(i); if(c) counts[c]++; });
-      const list = data.maintenance.filter(i => maintCategory(i) === maintTab);
+      list.forEach(i => { const c = maintCategory(i); if(c) counts[c]++; });
+      const shown = list.filter(i => maintCategory(i) === maintTab);
       return `
         <h1>Maintenance</h1>
-        <div class="subtitle">Irregular tasks that cost money when ignored</div>
+        <div class="subtitle">Turnovers, filters, appliances, repairs</div>
+        ${propSelectorHtml()}
         <div class="tabs">
           <button class="tab ${maintTab==='urgent'?'active':''}" onclick="setMaintTab('urgent')">Urgent ${counts.urgent}</button>
           <button class="tab ${maintTab==='upcoming'?'active':''}" onclick="setMaintTab('upcoming')">Upcoming ${counts.upcoming}</button>
           <button class="tab ${maintTab==='due'?'active':''}" onclick="setMaintTab('due')">Due ${counts.due}</button>
           <button class="tab ${maintTab==='done'?'active':''}" onclick="setMaintTab('done')">Done ${counts.done}</button>
         </div>
-        ${list.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' : list.map(i => maintCard(i)).join('')}
+        ${shown.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' : shown.map(i => maintCard(i)).join('')}
       `;
     }
     function maintCard(item) {
@@ -372,6 +456,7 @@
                 ${item.lastDone ? 'Last: ' + fmt(item.lastDone) : ''}
                 ${item.interval ? ' · Every ' + item.interval + 'd' : ''}
               </div>
+              ${selectedProp === 'all' ? propLabel(item.propertyId) : ''}
               ${extra}
             </div>
             <div class="badge">${badge}</div>
@@ -385,11 +470,13 @@
       `;
     }
     function setMaintTab(t) { maintTab = t; render(); }
+
     function renderReminders() {
-      const upcoming = data.reminders.filter(r => !r.done).sort((a,b) => parse(a.date) - parse(b.date));
+      const upcoming = filtered(data.reminders).filter(r => !r.done).sort((a,b) => parse(a.date) - parse(b.date));
       return `
         <h1>Reminders</h1>
-        <div class="subtitle">Birthdays, renewals, appointments</div>
+        <div class="subtitle">License renewals, inspections, guest notes</div>
+        ${propSelectorHtml()}
         ${upcoming.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' :
           upcoming.map(r => `
             <div class="card reminder">
@@ -397,6 +484,7 @@
                 <div>
                   <div class="title">${esc(r.title)}</div>
                   <div class="meta">${fmt(r.date)}${r.recurring && r.recurring !== 'none' ? ' · ' + r.recurring : ''}</div>
+                  ${selectedProp === 'all' ? propLabel(r.propertyId) : ''}
                 </div>
               </div>
               <div class="actions">
@@ -407,24 +495,30 @@
           `).join('')}
       `;
     }
+
     function renderShopping() {
-      const items = data.shopping;
+      const items = filtered(data.shopping);
       const total = items.reduce((s,i) => s + (i.checked && i.cost ? Number(i.cost) : 0), 0);
       return `
-        <h1>Shopping List</h1>
-        <div class="subtitle">Supplies & items you need</div>
+        <h1>Shopping / Restock</h1>
+        <div class="subtitle">Toiletries, linens, cleaning supplies, filters</div>
+        ${propSelectorHtml()}
         ${total > 0 ? `<div class="meta" style="margin-bottom:12px">Logged this list: ${money(total)}</div>` : ''}
         ${items.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' :
           items.map(i => `
             <div class="shop-item ${i.checked ? 'checked' : ''}">
               <input type="checkbox" ${i.checked ? 'checked' : ''} onchange="toggleShop('${i.id}', this.checked)">
-              <div class="name">${esc(i.name)}</div>
+              <div>
+                <div class="name">${esc(i.name)}</div>
+                ${selectedProp === 'all' ? propLabel(i.propertyId) : ''}
+              </div>
               ${i.cost ? `<div class="shop-cost">${money(i.cost)}</div>` : ''}
               <button class="btn btn-edit" style="padding:6px 10px" onclick="openShopModal('${i.id}')">Edit</button>
             </div>
           `).join('')}
       `;
     }
+
     function renderBudget() {
       const costs = monthCosts();
       const spent = costs.reduce((s,c) => s + (Number(c.amount)||0), 0);
@@ -438,7 +532,8 @@
       const remClass = remaining == null ? '' : remaining < 0 ? 'over' : remaining < (starting * 0.2) ? 'low' : '';
       return `
         <h1>Budget</h1>
-        <div class="subtitle">Track what you have and what you spend</div>
+        <div class="subtitle">Track spend across your properties</div>
+        ${propSelectorHtml()}
         <div class="card neutral">
           <div class="budget-stats">
             <div class="stat-box">
@@ -451,7 +546,7 @@
             </div>
           </div>
           <div style="text-align:center; margin-top:8px">
-            <div class="stat-label">Remaining</div>
+            <div class="stat-label">Remaining ${selectedProp !== 'all' ? '(' + propName(selectedProp) + ')' : ''}</div>
             <div class="budget-total remaining ${remClass}">${remaining != null ? money(remaining) : 'Set a starting budget'}</div>
           </div>
           <div class="actions" style="margin-top:12px">
@@ -473,6 +568,7 @@
                 <div>
                   <div class="title">${esc(c.label || c.category || 'Cost')}</div>
                   <div class="meta">${fmt(c.date)} · ${esc(c.category || '')}</div>
+                  ${selectedProp === 'all' ? propLabel(c.propertyId) : ''}
                 </div>
                 <div style="font-weight:600">${money(c.amount)}</div>
               </div>
@@ -483,31 +579,72 @@
           `).join('')}
       `;
     }
-    function openStartingBudgetModal() {
+
+    // ——— Property modal ———
+    function openPropModal(id) {
+      editing = id || null;
+      const item = id ? data.properties.find(p => p.id === id) : null;
       document.getElementById('modal').innerHTML = `
-        <h2>Starting Budget</h2>
-        <label>How much do you have to spend this month? <span class="req">*</span></label>
-        <input type="number" id="b-start" step="0.01" value="${data.startingBudget != null ? data.startingBudget : ''}" placeholder="e.g. 2000">
+        <h2>${id ? 'Edit' : 'Add'} Property</h2>
+        <label>Name <span class="req">*</span></label>
+        <input id="p-name" value="${item ? esc(item.name) : ''}" placeholder="e.g. Downtown Loft, Basement Suite">
+        <label>Address (optional)</label>
+        <input id="p-address" value="${item ? esc(item.address || '') : ''}" placeholder="123 Main St">
+        <label>Notes</label>
+        <textarea id="p-notes">${item ? esc(item.notes || '') : ''}</textarea>
         <div class="modal-actions">
           <button class="btn-ghost" onclick="closeModal()">Cancel</button>
-          <button class="btn-primary" onclick="saveStartingBudget()">Save</button>
+          <button class="btn-primary" onclick="saveProp()">Save</button>
         </div>
+        ${id ? `<button class="delete-btn" onclick="deleteProp()">Delete Property</button>` : ''}
       `;
       document.getElementById('overlay').classList.add('open');
     }
-    function saveStartingBudget() {
-      const val = document.getElementById('b-start').value;
-      data.startingBudget = val === '' ? null : Number(val);
+    function saveProp() {
+      const name = document.getElementById('p-name').value.trim();
+      if (!name) return alert('Name is required');
+      const payload = {
+        name,
+        address: document.getElementById('p-address').value.trim() || '',
+        notes: document.getElementById('p-notes').value.trim() || ''
+      };
+      if (editing) {
+        const item = data.properties.find(p => p.id === editing);
+        Object.assign(item, payload);
+      } else {
+        const newId = uid();
+        data.properties.push({ id: newId, ...payload });
+        if (data.properties.length === 1) selectedProp = newId;
+      }
       save(); closeModal(); render();
     }
+    function deleteProp() {
+      if (!confirm('Delete this property and all its items?')) return;
+      const id = editing;
+      data.properties = data.properties.filter(p => p.id !== id);
+      data.maintenance = data.maintenance.filter(i => i.propertyId !== id);
+      data.reminders = data.reminders.filter(i => i.propertyId !== id);
+      data.shopping = data.shopping.filter(i => i.propertyId !== id);
+      data.costs = data.costs.filter(i => i.propertyId !== id);
+      if (selectedProp === id) selectedProp = 'all';
+      save(); closeModal(); render();
+    }
+
+    // ——— Maintenance ———
     function openMaintModal(id) {
+      if (data.properties.length === 0) return alert('Add a property first');
       editing = id || null;
       const item = id ? data.maintenance.find(i => i.id === id) : null;
       tempSatisfied = item ? item.satisfied : null;
+      let propOpts = data.properties.map(p => 
+        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+      ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Maintenance</h2>
+        <label>Property <span class="req">*</span></label>
+        <select id="m-prop">${propOpts}</select>
         <label>Name <span class="req">*</span></label>
-        <input id="m-name" value="${item ? esc(item.name) : ''}" placeholder="e.g. HVAC filter">
+        <input id="m-name" value="${item ? esc(item.name) : ''}" placeholder="e.g. HVAC filter, Deep clean, Smoke detectors">
         <label>Next due date <span class="req">*</span></label>
         <input type="date" id="m-next" value="${item?.nextDue || ''}">
         <div class="form-row">
@@ -517,7 +654,7 @@
         <label>Cost (optional)</label>
         <input type="number" id="m-cost" step="0.01" value="${item?.cost || ''}" placeholder="0.00">
         <label>Who did the work (optional)</label>
-        <input id="m-who" value="${item ? esc(item.who || '') : ''}" placeholder="e.g. Mike at ABC Heating">
+        <input id="m-who" value="${item ? esc(item.who || '') : ''}" placeholder="e.g. Cleaner, handyman, self">
         <label>Satisfied?</label>
         <div class="toggle-row">
           <button type="button" class="toggle-btn ${tempSatisfied===true?'active-yes':''}" onclick="setSatisfied(true)">Yes</button>
@@ -542,9 +679,10 @@
     function saveMaint() {
       const name = document.getElementById('m-name').value.trim();
       const nextDue = document.getElementById('m-next').value;
-      if (!name || !nextDue) return alert('Name and next due date are required');
+      const propertyId = document.getElementById('m-prop').value;
+      if (!name || !nextDue || !propertyId) return alert('Name, due date and property are required');
       const payload = {
-        name, nextDue,
+        name, nextDue, propertyId,
         lastDone: document.getElementById('m-last').value || null,
         interval: parseInt(document.getElementById('m-interval').value) || null,
         cost: document.getElementById('m-cost').value ? Number(document.getElementById('m-cost').value) : null,
@@ -576,7 +714,10 @@
         item.nextDue = next.toISOString().slice(0,10);
       }
       if (cost && !isNaN(cost)) {
-        data.costs.push({ id: uid(), amount: Number(cost), date: item.lastDone, category: 'Maintenance', label: item.name });
+        data.costs.push({
+          id: uid(), amount: Number(cost), date: item.lastDone,
+          category: 'Maintenance', label: item.name, propertyId: item.propertyId
+        });
       }
       setTimeout(() => { save(); render(); }, 400);
     }
@@ -585,13 +726,21 @@
       data.maintenance = data.maintenance.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
+
+    // ——— Reminders ———
     function openReminderModal(id) {
+      if (data.properties.length === 0) return alert('Add a property first');
       editing = id || null;
       const item = id ? data.reminders.find(i => i.id === id) : null;
+      let propOpts = data.properties.map(p => 
+        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+      ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Reminder</h2>
+        <label>Property <span class="req">*</span></label>
+        <select id="r-prop">${propOpts}</select>
         <label>Title <span class="req">*</span></label>
-        <input id="r-title" value="${item ? esc(item.title) : ''}" placeholder="Birthday, renewal...">
+        <input id="r-title" value="${item ? esc(item.title) : ''}" placeholder="License renewal, inspection, seasonal...">
         <label>Date <span class="req">*</span></label>
         <input type="date" id="r-date" value="${item?.date || ''}">
         <label>Recurring</label>
@@ -613,8 +762,14 @@
     function saveReminder() {
       const title = document.getElementById('r-title').value.trim();
       const date = document.getElementById('r-date').value;
-      if (!title || !date) return alert('Title and date are required');
-      const payload = { title, date, recurring: document.getElementById('r-recurring').value, notes: document.getElementById('r-notes').value.trim() || '', done: false };
+      const propertyId = document.getElementById('r-prop').value;
+      if (!title || !date || !propertyId) return alert('Title, date and property are required');
+      const payload = {
+        title, date, propertyId,
+        recurring: document.getElementById('r-recurring').value,
+        notes: document.getElementById('r-notes').value.trim() || '',
+        done: false
+      };
       if (editing) Object.assign(data.reminders.find(i => i.id === editing), payload);
       else data.reminders.push({ id: uid(), ...payload });
       save(); closeModal(); render();
@@ -632,13 +787,21 @@
       data.reminders = data.reminders.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
+
+    // ——— Shopping ———
     function openShopModal(id) {
+      if (data.properties.length === 0) return alert('Add a property first');
       editing = id || null;
       const item = id ? data.shopping.find(i => i.id === id) : null;
+      let propOpts = data.properties.map(p => 
+        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+      ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Item</h2>
+        <label>Property <span class="req">*</span></label>
+        <select id="s-prop">${propOpts}</select>
         <label>Name <span class="req">*</span></label>
-        <input id="s-name" value="${item ? esc(item.name) : ''}" placeholder="Filter, batteries, supplies...">
+        <input id="s-name" value="${item ? esc(item.name) : ''}" placeholder="Toilet paper, shampoo, vacuum bags...">
         <label>Cost (optional)</label>
         <input type="number" id="s-cost" step="0.01" value="${item?.cost || ''}" placeholder="0.00">
         <div class="modal-actions">
@@ -651,10 +814,13 @@
     }
     function saveShop() {
       const name = document.getElementById('s-name').value.trim();
-      if (!name) return alert('Name is required');
+      const propertyId = document.getElementById('s-prop').value;
+      if (!name || !propertyId) return alert('Name and property are required');
       const cost = document.getElementById('s-cost').value ? Number(document.getElementById('s-cost').value) : null;
-      if (editing) { const item = data.shopping.find(i => i.id === editing); item.name = name; item.cost = cost; }
-      else data.shopping.push({ id: uid(), name, cost, checked: false });
+      if (editing) {
+        const item = data.shopping.find(i => i.id === editing);
+        item.name = name; item.cost = cost; item.propertyId = propertyId;
+      } else data.shopping.push({ id: uid(), name, cost, checked: false, propertyId });
       save(); closeModal(); render();
     }
     function toggleShop(id, checked) {
@@ -662,7 +828,10 @@
       if (!item) return;
       item.checked = checked;
       if (checked && item.cost && !isNaN(item.cost)) {
-        data.costs.push({ id: uid(), amount: Number(item.cost), date: today().toISOString().slice(0,10), category: 'Shopping', label: item.name });
+        data.costs.push({
+          id: uid(), amount: Number(item.cost), date: today().toISOString().slice(0,10),
+          category: 'Restock', label: item.name, propertyId: item.propertyId
+        });
       }
       save(); render();
     }
@@ -671,21 +840,46 @@
       data.shopping = data.shopping.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
+
+    // ——— Costs / Budget ———
+    function openStartingBudgetModal() {
+      document.getElementById('modal').innerHTML = `
+        <h2>Starting Budget</h2>
+        <label>How much do you have to spend this month? <span class="req">*</span></label>
+        <input type="number" id="b-start" step="0.01" value="${data.startingBudget != null ? data.startingBudget : ''}" placeholder="e.g. 2000">
+        <div class="modal-actions">
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="saveStartingBudget()">Save</button>
+        </div>
+      `;
+      document.getElementById('overlay').classList.add('open');
+    }
+    function saveStartingBudget() {
+      const val = document.getElementById('b-start').value;
+      data.startingBudget = val === '' ? null : Number(val);
+      save(); closeModal(); render();
+    }
     function openCostModal(id) {
+      if (data.properties.length === 0) return alert('Add a property first');
       editing = id || null;
       const item = id ? data.costs.find(i => i.id === id) : null;
+      let propOpts = data.properties.map(p => 
+        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+      ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Cost</h2>
+        <label>Property <span class="req">*</span></label>
+        <select id="c-prop">${propOpts}</select>
         <label>Label</label>
-        <input id="c-label" value="${item ? esc(item.label || '') : ''}" placeholder="e.g. Oil change">
+        <input id="c-label" value="${item ? esc(item.label || '') : ''}" placeholder="e.g. Cleaner, new towels">
         <label>Amount <span class="req">*</span></label>
         <input type="number" id="c-amount" step="0.01" value="${item?.amount || ''}" placeholder="0.00">
         <label>Category</label>
         <select id="c-category">
           <option value="Maintenance" ${item?.category==='Maintenance'?'selected':''}>Maintenance</option>
-          <option value="Shopping" ${item?.category==='Shopping'?'selected':''}>Shopping</option>
-          <option value="Car" ${item?.category==='Car'?'selected':''}>Car</option>
-          <option value="Home" ${item?.category==='Home'?'selected':''}>Home</option>
+          <option value="Restock" ${item?.category==='Restock'?'selected':''}>Restock / Supplies</option>
+          <option value="Cleaning" ${item?.category==='Cleaning'?'selected':''}>Cleaning</option>
+          <option value="Utilities" ${item?.category==='Utilities'?'selected':''}>Utilities</option>
           <option value="Other" ${!item || item?.category==='Other'?'selected':''}>Other</option>
         </select>
         <label>Date</label>
@@ -701,12 +895,14 @@
     function saveCost() {
       const label = document.getElementById('c-label').value.trim();
       const amount = Number(document.getElementById('c-amount').value);
-      if (isNaN(amount) || document.getElementById('c-amount').value === '') return alert('Amount is required');
+      const propertyId = document.getElementById('c-prop').value;
+      if (isNaN(amount) || document.getElementById('c-amount').value === '' || !propertyId) return alert('Amount and property are required');
       const payload = {
         label: label || 'Cost',
         amount,
         category: document.getElementById('c-category').value,
-        date: document.getElementById('c-date').value || today().toISOString().slice(0,10)
+        date: document.getElementById('c-date').value || today().toISOString().slice(0,10),
+        propertyId
       };
       if (editing) Object.assign(data.costs.find(i => i.id === editing), payload);
       else data.costs.push({ id: uid(), ...payload });
@@ -717,11 +913,13 @@
       data.costs = data.costs.filter(i => i.id !== editing);
       save(); closeModal(); render();
     }
+
     function closeModal() {
       document.getElementById('overlay').classList.remove('open');
       editing = null;
       tempSatisfied = null;
     }
+
     document.getElementById('nav').addEventListener('click', e => {
       const btn = e.target.closest('button');
       if (!btn) return;
@@ -730,6 +928,8 @@
     document.getElementById('overlay').addEventListener('click', e => {
       if (e.target.id === 'overlay') closeModal();
     });
+
+    // Auto-uncomplete maintenance that is coming due again
     data.maintenance.forEach(item => {
       if (item.completed && item.nextDue) {
         const days = daysUntil(parse(item.nextDue));
