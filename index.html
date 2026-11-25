@@ -74,6 +74,10 @@
     .btn-edit { background: var(--surface2); color: var(--text); }
     .btn-primary { background: var(--accent); color: #0f172a; }
     .btn-ghost { background: transparent; color: var(--muted); }
+    .btn-danger {
+      background: transparent; color: var(--red); border: 1px solid var(--red);
+      border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 0.85rem; cursor: pointer;
+    }
     .section-title { font-size: 0.9rem; color: var(--muted); margin: 20px 0 8px; font-weight: 600; }
     .home-label { font-size: 0.8rem; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: 0.03em; }
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); line-height: 1.5; }
@@ -96,10 +100,14 @@
     .prop-select {
       width: 100%; background: var(--surface); border: 1px solid var(--surface2);
       border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 0.95rem;
-      margin-bottom: 14px; appearance: none;
+      margin-bottom: 10px; appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: right 14px center;
     }
+    .prop-bar {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 14px;
+    }
+    .prop-bar select { flex: 1; margin-bottom: 0; }
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.7);
       display: flex; align-items: flex-end; justify-content: center;
@@ -118,6 +126,11 @@
     input, textarea, select {
       width: 100%; background: var(--bg); border: 1px solid var(--surface2);
       border-radius: 10px; padding: 11px; color: var(--text); font-size: 1rem; margin-bottom: 12px;
+    }
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      opacity: 0.9;
+      cursor: pointer;
     }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
@@ -153,12 +166,10 @@
       display: inline-block; font-size: 0.72rem; background: var(--surface2);
       color: var(--muted); padding: 2px 8px; border-radius: 8px; margin-top: 4px;
     }
-    .prop-card {
-      background: var(--surface); border-radius: 14px; padding: 16px; margin-bottom: 10px;
-      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    .shop-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; gap: 10px;
     }
-    .prop-card .name { font-weight: 600; }
-    .prop-card .addr { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -189,18 +200,20 @@
     <div class="modal" id="modal"></div>
   </div>
   <script>
-    const KEY = 'lastwhen_hosts_v1';
+    const KEY = 'lastwhen_hosts_v2';
     let data = JSON.parse(localStorage.getItem(KEY) || null) || {
       properties: [],
+      contractors: [],
       maintenance: [],
       reminders: [],
       shopping: [],
       costs: [],
       startingBudget: null
     };
+    if (!data.contractors) data.contractors = [];
     let page = 'home';
     let maintTab = 'urgent';
-    let selectedProp = 'all'; // 'all' or property id
+    let selectedProp = 'all';
     let editing = null;
     let tempSatisfied = null;
 
@@ -230,6 +243,11 @@
       if (!id) return '';
       const p = data.properties.find(x => x.id === id);
       return p ? `<span class="prop-chip">${esc(p.name)}</span>` : '';
+    }
+    function contractorName(id) {
+      if (!id) return '';
+      const c = data.contractors.find(x => x.id === id);
+      return c ? c.name : '';
     }
     function filtered(list) {
       if (selectedProp === 'all') return list;
@@ -269,7 +287,13 @@
       data.properties.forEach(p => {
         opts += `<option value="${p.id}" ${selectedProp===p.id?'selected':''}>${esc(p.name)}</option>`;
       });
-      return `<select class="prop-select" onchange="setProp(this.value)">${opts}</select>`;
+      return `
+        <div class="prop-bar">
+          <select class="prop-select" onchange="setProp(this.value)">${opts}</select>
+          ${selectedProp !== 'all' ? `<button class="btn btn-edit" style="padding:10px 12px;white-space:nowrap" onclick="openPropModal('${selectedProp}')">Edit</button>` : ''}
+          <button class="btn btn-primary" style="padding:10px 12px;white-space:nowrap" onclick="openPropModal()">+ Add</button>
+        </div>
+      `;
     }
 
     function render() {
@@ -328,12 +352,13 @@
           else if (d === 0) badge = 'Due today';
           else badge = 'Due in ' + d + 'd';
         }
+        const who = item.contractorId ? contractorName(item.contractorId) : (item.who || '');
         return `
           <div class="card ${cat} clickable" onclick="goTo('maintenance','${cat}')">
             <div class="row">
               <div>
                 <div class="title">${esc(item.name)}</div>
-                <div class="meta">${item.cost ? money(item.cost) + ' · ' : ''}${item.lastDone ? 'Last: ' + fmt(item.lastDone) : ''}</div>
+                <div class="meta">${item.cost ? money(item.cost) + ' · ' : ''}${item.lastDone ? 'Last: ' + fmt(item.lastDone) : ''}${who ? ' · ' + esc(who) : ''}</div>
                 ${selectedProp === 'all' ? propLabel(item.propertyId) : ''}
               </div>
               <div class="badge">${badge}</div>
@@ -365,19 +390,6 @@
         <h1>LastWhen Hosts</h1>
         <div class="subtitle">Property memory + light money for hosts</div>
         ${propSelectorHtml()}
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div class="home-label" style="margin:0">Properties</div>
-          <button class="btn btn-edit" style="padding:6px 10px;font-size:0.8rem" onclick="openPropModal()">+ Add</button>
-        </div>
-        ${data.properties.map(p => `
-          <div class="prop-card">
-            <div>
-              <div class="name">${esc(p.name)}</div>
-              <div class="addr">${esc(p.address || '')}</div>
-            </div>
-            <button class="btn btn-edit" style="padding:6px 10px" onclick="openPropModal('${p.id}')">Edit</button>
-          </div>
-        `).join('')}
         <div class="home-label">Most Urgent</div>
         ${urgent.length ? urgent.slice(0,3).map(smallMaintCard).join('') : `
           <div class="card neutral clickable" onclick="goTo('maintenance','urgent')">
@@ -416,7 +428,7 @@
       const shown = list.filter(i => maintCategory(i) === maintTab);
       return `
         <h1>Maintenance</h1>
-        <div class="subtitle">Turnovers, filters, appliances, repairs</div>
+        <div class="subtitle">Turnovers, filters, appliances, hired services</div>
         ${propSelectorHtml()}
         <div class="tabs">
           <button class="tab ${maintTab==='urgent'?'active':''}" onclick="setMaintTab('urgent')">Urgent ${counts.urgent}</button>
@@ -438,11 +450,12 @@
         else if (d === 0) badge = 'Due today';
         else badge = 'Due in ' + d + 'd';
       }
+      const who = item.contractorId ? contractorName(item.contractorId) : (item.who || '');
       let extra = '';
-      if (item.who || item.satisfied != null) {
+      if (who || item.satisfied != null) {
         extra = `<div class="meta" style="margin-top:4px">
-          ${item.who ? 'By: ' + esc(item.who) : ''}
-          ${item.who && item.satisfied != null ? ' · ' : ''}
+          ${who ? 'By: ' + esc(who) : ''}
+          ${who && item.satisfied != null ? ' · ' : ''}
           ${item.satisfied === true ? '😊 Satisfied' : item.satisfied === false ? '😐 Not satisfied' : ''}
         </div>`;
       }
@@ -503,7 +516,10 @@
         <h1>Shopping / Restock</h1>
         <div class="subtitle">Toiletries, linens, cleaning supplies, filters</div>
         ${propSelectorHtml()}
-        ${total > 0 ? `<div class="meta" style="margin-bottom:12px">Logged this list: ${money(total)}</div>` : ''}
+        <div class="shop-header">
+          <div class="meta">${total > 0 ? 'Logged this list: ' + money(total) : ''}</div>
+          ${items.length > 0 ? `<button class="btn-danger" onclick="clearShopping()">Delete all</button>` : ''}
+        </div>
         ${items.length === 0 ? '<div class="empty">No entries yet.<br>Tap + to add one.</div>' :
           items.map(i => `
             <div class="shop-item ${i.checked ? 'checked' : ''}">
@@ -517,6 +533,20 @@
             </div>
           `).join('')}
       `;
+    }
+
+    function clearShopping() {
+      const msg = selectedProp === 'all'
+        ? 'Delete ALL shopping items across every property?'
+        : 'Delete all shopping items for this property?';
+      if (!confirm(msg)) return;
+      if (selectedProp === 'all') {
+        data.shopping = [];
+      } else {
+        data.shopping = data.shopping.filter(i => i.propertyId !== selectedProp);
+      }
+      save();
+      render();
     }
 
     function renderBudget() {
@@ -630,21 +660,44 @@
       save(); closeModal(); render();
     }
 
+    // ——— Contractor helpers ———
+    function openAddContractor(thenSelectId) {
+      const name = prompt('Contractor / person name (e.g. Maria – Cleaner, Joe Landscaping):');
+      if (!name || !name.trim()) return;
+      const newId = uid();
+      data.contractors.push({ id: newId, name: name.trim() });
+      save();
+      if (thenSelectId) {
+        const currentEditing = editing;
+        closeModal();
+        setTimeout(() => openMaintModal(currentEditing, newId), 50);
+      }
+    }
+
     // ——— Maintenance ———
-    function openMaintModal(id) {
+    function openMaintModal(id, preselectContractor) {
       if (data.properties.length === 0) return alert('Add a property first');
       editing = id || null;
       const item = id ? data.maintenance.find(i => i.id === id) : null;
       tempSatisfied = item ? item.satisfied : null;
+
       let propOpts = data.properties.map(p => 
-        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+        `<option value="${p.id}" ${(item?.propertyId || (selectedProp !== 'all' ? selectedProp : data.properties[0].id)) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
       ).join('');
+
+      const currentWho = preselectContractor || item?.contractorId || '';
+      let whoOpts = `<option value="">— None / self —</option>`;
+      data.contractors.forEach(c => {
+        whoOpts += `<option value="${c.id}" ${currentWho === c.id ? 'selected' : ''}>${esc(c.name)}</option>`;
+      });
+      whoOpts += `<option value="__new__">+ Add new contractor...</option>`;
+
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Maintenance</h2>
         <label>Property <span class="req">*</span></label>
         <select id="m-prop">${propOpts}</select>
         <label>Name <span class="req">*</span></label>
-        <input id="m-name" value="${item ? esc(item.name) : ''}" placeholder="e.g. HVAC filter, Deep clean, Smoke detectors">
+        <input id="m-name" value="${item ? esc(item.name) : ''}" placeholder="e.g. Deep clean, HVAC filter, Lawn care">
         <label>Next due date <span class="req">*</span></label>
         <input type="date" id="m-next" value="${item?.nextDue || ''}">
         <div class="form-row">
@@ -653,8 +706,10 @@
         </div>
         <label>Cost (optional)</label>
         <input type="number" id="m-cost" step="0.01" value="${item?.cost || ''}" placeholder="0.00">
-        <label>Who did the work (optional)</label>
-        <input id="m-who" value="${item ? esc(item.who || '') : ''}" placeholder="e.g. Cleaner, handyman, self">
+        <label>Contractor / Who</label>
+        <select id="m-contractor" onchange="if(this.value==='__new__'){ openAddContractor(true); this.value=''; }">
+          ${whoOpts}
+        </select>
         <label>Satisfied?</label>
         <div class="toggle-row">
           <button type="button" class="toggle-btn ${tempSatisfied===true?'active-yes':''}" onclick="setSatisfied(true)">Yes</button>
@@ -681,12 +736,14 @@
       const nextDue = document.getElementById('m-next').value;
       const propertyId = document.getElementById('m-prop').value;
       if (!name || !nextDue || !propertyId) return alert('Name, due date and property are required');
+      const contractorVal = document.getElementById('m-contractor').value;
       const payload = {
         name, nextDue, propertyId,
         lastDone: document.getElementById('m-last').value || null,
         interval: parseInt(document.getElementById('m-interval').value) || null,
         cost: document.getElementById('m-cost').value ? Number(document.getElementById('m-cost').value) : null,
-        who: document.getElementById('m-who').value.trim() || null,
+        contractorId: (contractorVal && contractorVal !== '__new__') ? contractorVal : null,
+        who: null,
         satisfied: tempSatisfied,
         notes: document.getElementById('m-notes').value.trim() || '',
         completed: false
@@ -714,9 +771,10 @@
         item.nextDue = next.toISOString().slice(0,10);
       }
       if (cost && !isNaN(cost)) {
+        const cat = item.contractorId ? 'Services' : 'Maintenance';
         data.costs.push({
           id: uid(), amount: Number(cost), date: item.lastDone,
-          category: 'Maintenance', label: item.name, propertyId: item.propertyId
+          category: cat, label: item.name, propertyId: item.propertyId
         });
       }
       setTimeout(() => { save(); render(); }, 400);
@@ -733,7 +791,7 @@
       editing = id || null;
       const item = id ? data.reminders.find(i => i.id === id) : null;
       let propOpts = data.properties.map(p => 
-        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+        `<option value="${p.id}" ${(item?.propertyId || (selectedProp !== 'all' ? selectedProp : data.properties[0].id)) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
       ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Reminder</h2>
@@ -794,7 +852,7 @@
       editing = id || null;
       const item = id ? data.shopping.find(i => i.id === id) : null;
       let propOpts = data.properties.map(p => 
-        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+        `<option value="${p.id}" ${(item?.propertyId || (selectedProp !== 'all' ? selectedProp : data.properties[0].id)) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
       ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Item</h2>
@@ -864,19 +922,20 @@
       editing = id || null;
       const item = id ? data.costs.find(i => i.id === id) : null;
       let propOpts = data.properties.map(p => 
-        `<option value="${p.id}" ${(item?.propertyId||selectedProp)===p.id?'selected':''}>${esc(p.name)}</option>`
+        `<option value="${p.id}" ${(item?.propertyId || (selectedProp !== 'all' ? selectedProp : data.properties[0].id)) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
       ).join('');
       document.getElementById('modal').innerHTML = `
         <h2>${id ? 'Edit' : 'Add'} Cost</h2>
         <label>Property <span class="req">*</span></label>
         <select id="c-prop">${propOpts}</select>
         <label>Label</label>
-        <input id="c-label" value="${item ? esc(item.label || '') : ''}" placeholder="e.g. Cleaner, new towels">
+        <input id="c-label" value="${item ? esc(item.label || '') : ''}" placeholder="e.g. Cleaner visit, new towels">
         <label>Amount <span class="req">*</span></label>
         <input type="number" id="c-amount" step="0.01" value="${item?.amount || ''}" placeholder="0.00">
         <label>Category</label>
         <select id="c-category">
           <option value="Maintenance" ${item?.category==='Maintenance'?'selected':''}>Maintenance</option>
+          <option value="Services" ${item?.category==='Services'?'selected':''}>Services (cleaner, landscaping, etc.)</option>
           <option value="Restock" ${item?.category==='Restock'?'selected':''}>Restock / Supplies</option>
           <option value="Cleaning" ${item?.category==='Cleaning'?'selected':''}>Cleaning</option>
           <option value="Utilities" ${item?.category==='Utilities'?'selected':''}>Utilities</option>
@@ -929,7 +988,6 @@
       if (e.target.id === 'overlay') closeModal();
     });
 
-    // Auto-uncomplete maintenance that is coming due again
     data.maintenance.forEach(item => {
       if (item.completed && item.nextDue) {
         const days = daysUntil(parse(item.nextDue));
